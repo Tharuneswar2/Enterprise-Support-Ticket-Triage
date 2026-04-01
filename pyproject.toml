@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "enterprise-support-ticket-triage"
+version = "0.1.0"
+description = "OpenEnv RL environment for enterprise support ticket triage workflows."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+  { name = "OpenEnv Round 1 Submission" }
+]
+dependencies = [
+  "openenv-core>=0.2.2",
+  "openai>=1.30.0",
+  "pydantic>=2.7.0",
+  "PyYAML>=6.0"
+]
+keywords = ["openenv", "reinforcement-learning", "helpdesk", "ticket-triage"]
+
+[project.scripts]
+server = "server.app:main"
+
+[tool.setuptools]
+packages = ["env", "server"]
