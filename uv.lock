@@ -562,7 +562,9 @@ dependencies = [
     { name = "openai" },
     { name = "openenv-core" },
     { name = "pydantic" },
+    { name = "python-dotenv" },
     { name = "pyyaml" },
+    { name = "uvicorn" },
 ]
 
 [package.metadata]
@@ -570,7 +572,9 @@ requires-dist = [
     { name = "openai", specifier = ">=1.30.0" },
     { name = "openenv-core", specifier = ">=0.2.2" },
     { name = "pydantic", specifier = ">=2.7.0" },
+    { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "pyyaml", specifier = ">=6.0" },
+    { name = "uvicorn", specifier = ">=0.30.0" },
 ]
 
 [[package]]

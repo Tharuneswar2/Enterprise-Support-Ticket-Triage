@@ -77,6 +77,7 @@ class EnterpriseSupportTicketTriageEnv:
                 "classification_attempts": 0,
                 "last_signature": "",
                 "repeat_count": 0,
+                "milestones_awarded": {},
             },
             conversation_history=[ConversationTurn(speaker="customer", message=task.customer_message)],
             step_count=0,
@@ -183,6 +184,29 @@ class EnterpriseSupportTicketTriageEnv:
         }
         handlers[action.action_type](action, task, components)
 
+    def _award_milestone(
+        self,
+        milestone: str,
+        components: dict[str, float],
+        key: str,
+        first_value: float,
+        repeat_value: float = 0.0,
+    ) -> bool:
+        """
+        Award trajectory-shaping reward only once for a semantic milestone.
+        This prevents reward farming by repeating already-completed actions.
+        """
+        assert self._state is not None
+        milestones = self._state.episode_metadata.setdefault("milestones_awarded", {})
+        if milestones.get(milestone, False):
+            if repeat_value != 0.0:
+                components[f"{key}_repeat"] = repeat_value
+            return False
+
+        milestones[milestone] = True
+        components[key] = first_value
+        return True
+
     def _handle_classify(self, action: Action, task, components: dict[str, float]) -> None:
         assert self._state is not None
         guessed_category = self._infer_category(action)
@@ -193,9 +217,14 @@ class EnterpriseSupportTicketTriageEnv:
             return
 
         if guessed_category == task.ground_truth_category:
-            first_correct = not self._state.progress_flags["classified_correct"]
             self._state.progress_flags["classified_correct"] = True
-            components["classify_correct"] = 0.22 if first_correct else 0.03
+            self._award_milestone(
+                "classify_correct",
+                components,
+                key="classify_correct",
+                first_value=0.22,
+                repeat_value=-0.03,
+            )
         else:
             components["classify_incorrect"] = -0.10
 
@@ -211,7 +240,13 @@ class EnterpriseSupportTicketTriageEnv:
         self._state.progress_flags["queue_correct"] = is_correct
 
         if is_correct:
-            components["queue_correct"] = 0.18
+            self._award_milestone(
+                "queue_correct",
+                components,
+                key="queue_correct",
+                first_value=0.18,
+                repeat_value=-0.03,
+            )
         else:
             components["queue_incorrect"] = -0.14
 
@@ -227,7 +262,14 @@ class EnterpriseSupportTicketTriageEnv:
         self._state.progress_flags["priority_correct"] = is_correct
 
         if is_correct:
-            components["priority_correct"] = 0.16 if task.difficulty == "hard" else 0.12
+            first_reward = 0.16 if task.difficulty == "hard" else 0.12
+            self._award_milestone(
+                "priority_correct",
+                components,
+                key="priority_correct",
+                first_value=first_reward,
+                repeat_value=-0.03,
+            )
         else:
             components["priority_incorrect"] = -0.12
 
@@ -275,22 +317,58 @@ class EnterpriseSupportTicketTriageEnv:
             )
             if has_billing_ack:
                 self._state.progress_flags["acknowledged_billing_issue"] = True
-                components["billing_acknowledged"] = 0.16
+                self._award_milestone(
+                    "billing_acknowledged",
+                    components,
+                    key="billing_acknowledged",
+                    first_value=0.16,
+                    repeat_value=-0.02,
+                )
             if contains_any(message, ["next steps", "investigate", "we will follow up", "timeline"]):
-                components["clear_next_steps"] = 0.08
+                self._award_milestone(
+                    "clear_next_steps",
+                    components,
+                    key="clear_next_steps",
+                    first_value=0.08,
+                    repeat_value=-0.01,
+                )
 
         if task.task_id == "medium_security_suspicious_login":
             if contains_any(message, ["password reset", "reset your password", "credential reset"]):
                 self._state.progress_flags["advised_password_reset"] = True
-                components["security_reset_guidance"] = 0.14
+                self._award_milestone(
+                    "security_reset_guidance",
+                    components,
+                    key="security_reset_guidance",
+                    first_value=0.14,
+                    repeat_value=-0.02,
+                )
             if contains_any(message, ["verify", "confirm", "identity", "mfa"]):
-                components["security_verification_guidance"] = 0.06
+                self._award_milestone(
+                    "security_verification_guidance",
+                    components,
+                    key="security_verification_guidance",
+                    first_value=0.06,
+                    repeat_value=-0.01,
+                )
 
         if task.task_id == "hard_production_outage":
             if contains_any(message, ["incident", "outage", "sev", "critical", "impact"]):
-                components["incident_severity_handling"] = 0.08
+                self._award_milestone(
+                    "incident_severity_handling",
+                    components,
+                    key="incident_severity_handling",
+                    first_value=0.08,
+                    repeat_value=-0.01,
+                )
             if contains_any(message, ["escalate", "on-call", "incident commander", "bridge"]):
-                components["incident_escalation_language"] = 0.06
+                self._award_milestone(
+                    "incident_escalation_language",
+                    components,
+                    key="incident_escalation_language",
+                    first_value=0.06,
+                    repeat_value=-0.01,
+                )
 
             detected_fields = detect_requested_fields(
                 message,

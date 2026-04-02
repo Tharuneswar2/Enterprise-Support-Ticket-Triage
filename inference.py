@@ -9,6 +9,11 @@ try:
 except ImportError:  # pragma: no cover - optional runtime fallback
     OpenAI = None  # type: ignore[assignment]
 
+try:
+    from dotenv import load_dotenv
+except ImportError:  # pragma: no cover - optional runtime fallback
+    load_dotenv = None
+
 from env.models import Action, ActionType, Observation, PriorityLevel
 from env.support_env import EnterpriseSupportTicketTriageEnv
 from env.tasks import TASK_ORDER
@@ -184,13 +189,19 @@ def run_episode(
     observation = env.reset(task_id=task_id)
     done = False
     model_enabled = client is not None
+    consecutive_model_failures = 0
 
     print(f"\n=== Task: {task_id} ===")
     while not done:
         if model_enabled:
             action, ok = choose_action(client, model_name, observation)
             if not ok:
-                model_enabled = False
+                consecutive_model_failures += 1
+                if consecutive_model_failures >= 3:
+                    model_enabled = False
+                    print("[warn] disabling model calls after 3 consecutive failures; using heuristic policy.")
+            else:
+                consecutive_model_failures = 0
         else:
             action = heuristic_action(observation)
         observation, reward, done, info = env.step(action)
@@ -212,16 +223,30 @@ def _normalize_base_url(url: str) -> str:
 
 
 def build_client_from_env(disable_api: bool) -> tuple[Any | None, str]:
+    if load_dotenv is not None:
+        load_dotenv()
+
     api_key = (
         os.getenv("HF_TOKEN", "").strip()
+        or os.getenv("HUGGING_FACE_HUB_TOKEN", "").strip()
         or os.getenv("API_KEY", "").strip()
         or os.getenv("HF_API_TOKEN", "").strip()
+        or os.getenv("OPENAI_API_KEY", "").strip()
     )
     api_base_url = _normalize_base_url(os.getenv("API_BASE_URL", "https://router.huggingface.co/v1"))
     model_name = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-7B-Instruct")
 
-    if disable_api or not api_key or OpenAI is None:
-        print("[info] HF_TOKEN missing/API disabled/client unavailable, using deterministic heuristic baseline.")
+    if disable_api:
+        print("[info] API disabled by --disable-api, using deterministic heuristic baseline.")
+        return None, model_name
+    if not api_key:
+        print(
+            "[info] No API token found in HF_TOKEN/HUGGING_FACE_HUB_TOKEN/API_KEY/HF_API_TOKEN; "
+            "using deterministic heuristic baseline."
+        )
+        return None, model_name
+    if OpenAI is None:
+        print("[info] openai package unavailable, using deterministic heuristic baseline.")
         return None, model_name
 
     client = OpenAI(base_url=api_base_url, api_key=api_key)

@@ -187,7 +187,9 @@ python inference.py --disable-api
 
 Environment variables used by `inference.py`:
 
-- `HF_TOKEN` (preferred; `API_KEY` and `HF_API_TOKEN` are also accepted)
+- `HF_TOKEN` (preferred)
+- `HUGGING_FACE_HUB_TOKEN` (also accepted)
+- `API_KEY` / `HF_API_TOKEN` (fallbacks)
 - `API_BASE_URL`
 - `MODEL_NAME`
 
@@ -197,6 +199,12 @@ export API_BASE_URL="https://router.huggingface.co/v1"
 export MODEL_NAME="Qwen/Qwen2.5-7B-Instruct"
 python inference.py
 ```
+
+For Hugging Face Spaces (Docker), add these as Space variables/secrets:
+- Secret: `HF_TOKEN`
+- Variable: `API_BASE_URL=https://router.huggingface.co/v1`
+- Variable: `MODEL_NAME=Qwen/Qwen2.5-7B-Instruct`
+- Variable: `PORT=7860`
 
 ## Validation
 
@@ -217,7 +225,19 @@ docker build -t enterprise-support-ticket-triage .
 Run:
 
 ```bash
-docker run --rm enterprise-support-ticket-triage
+docker run --rm -p 7860:7860 enterprise-support-ticket-triage
+```
+
+Health check (server mode):
+
+```bash
+curl http://localhost:7860/schema
+```
+
+Run baseline inference inside container:
+
+```bash
+docker run --rm enterprise-support-ticket-triage python inference.py --disable-api
 ```
 
 ## Baseline Score Reporting
@@ -245,6 +265,7 @@ Designed to run within:
 ## Hugging Face Spaces Deployment Notes
 
 - Docker-compatible (`Dockerfile` included)
+- Docker starts a persistent OpenEnv-compatible HTTP server (`python -m server.app`)
 - metadata tagged with `openenv` in [`openenv.yaml`](/home/tharuneswar/Coding/Hackthon/Enterprise-Support-Ticket-Triage/openenv.yaml)
 - low dependency footprint, no GPU requirement
 - suitable for Docker Spaces batch evaluation workflows
