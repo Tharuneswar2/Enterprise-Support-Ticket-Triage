@@ -33,6 +33,11 @@ Do not include markdown. Do not include explanations.
 """.strip()
 
 
+def emit(line: str) -> None:
+    """Emit validator-friendly stdout lines with immediate flush."""
+    print(line, flush=True)
+
+
 def build_user_prompt(observation: Observation) -> str:
     return (
         "Ticket observation JSON:\n"
@@ -176,7 +181,7 @@ def choose_action(client: Any | None, model_name: str, observation: Observation)
     try:
         return call_model_for_action(client, model_name, observation), True
     except Exception as exc:  # noqa: BLE001
-        print(f"[warn] model action parsing failed, fallback to heuristic: {exc}")
+        emit(f"[warn] model action parsing failed, fallback to heuristic: {exc}")
         return heuristic_action(observation), False
 
 
@@ -191,7 +196,7 @@ def run_episode(
     model_enabled = client is not None
     consecutive_model_failures = 0
 
-    print(f"\n=== Task: {task_id} ===")
+    emit(f"[START] task={task_id}")
     while not done:
         if model_enabled:
             action, ok = choose_action(client, model_name, observation)
@@ -199,19 +204,23 @@ def run_episode(
                 consecutive_model_failures += 1
                 if consecutive_model_failures >= 3:
                     model_enabled = False
-                    print("[warn] disabling model calls after 3 consecutive failures; using heuristic policy.")
+                    emit("[warn] disabling model calls after 3 consecutive failures; using heuristic policy.")
             else:
                 consecutive_model_failures = 0
         else:
             action = heuristic_action(observation)
         observation, reward, done, info = env.step(action)
-        print(
-            f"step={observation.step_count} action={action.action_type.value} "
-            f"status={observation.current_status.value} reward={reward.value:.3f}"
+        emit(
+            "[STEP] "
+            f"task={task_id} "
+            f"step={observation.step_count} "
+            f"action={action.action_type.value} "
+            f"status={observation.current_status.value} "
+            f"reward={reward.value:.3f}"
         )
 
     score = float(info.get("task_score") or 0.0)
-    print(f"task_score={score:.4f}")
+    emit(f"[END] task={task_id} score={score:.4f} steps={observation.step_count}")
     return score
 
 
@@ -237,16 +246,16 @@ def build_client_from_env(disable_api: bool) -> tuple[Any | None, str]:
     model_name = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-7B-Instruct")
 
     if disable_api:
-        print("[info] API disabled by --disable-api, using deterministic heuristic baseline.")
+        emit("[info] API disabled by --disable-api, using deterministic heuristic baseline.")
         return None, model_name
     if not api_key:
-        print(
+        emit(
             "[info] No API token found in HF_TOKEN/HUGGING_FACE_HUB_TOKEN/API_KEY/HF_API_TOKEN; "
             "using deterministic heuristic baseline."
         )
         return None, model_name
     if OpenAI is None:
-        print("[info] openai package unavailable, using deterministic heuristic baseline.")
+        emit("[info] openai package unavailable, using deterministic heuristic baseline.")
         return None, model_name
 
     client = OpenAI(base_url=api_base_url, api_key=api_key)
@@ -273,10 +282,10 @@ def main() -> None:
         scores.append(score)
 
     avg_score = sum(scores) / len(scores)
-    print("\n=== Baseline Summary ===")
+    emit("[SUMMARY] per_task_scores")
     for task_id, score in zip(TASK_ORDER, scores):
-        print(f"{task_id}: {score:.4f}")
-    print(f"average_score: {avg_score:.4f}")
+        emit(f"[SUMMARY] task={task_id} score={score:.4f}")
+    emit(f"[SUMMARY] average_score={avg_score:.4f}")
 
 
 if __name__ == "__main__":
