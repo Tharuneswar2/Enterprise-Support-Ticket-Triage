@@ -1,3 +1,14 @@
+---
+title: Support Env
+emoji: 📈
+colorFrom: purple
+colorTo: red
+sdk: docker
+pinned: false
+license: mit
+short_description: RL environment for training AI agents on real-world customer
+---
+
 # Enterprise Support Ticket Triage (OpenEnv Round 1)
 
 ## What This Environment Is
@@ -201,6 +212,7 @@ python inference.py
 ```
 
 For Hugging Face Spaces (Docker), add these as Space variables/secrets:
+
 - Secret: `HF_TOKEN`
 - Variable: `API_BASE_URL=https://router.huggingface.co/v1`
 - Variable: `MODEL_NAME=Qwen/Qwen2.5-7B-Instruct`
