@@ -44,6 +44,7 @@ class ConversationTurn(BaseModel):
 
     speaker: str
     message: str
+    timestamp: str | None = None
 
 
 class Action(BaseModel):
@@ -74,6 +75,9 @@ class Observation(BaseModel):
     subject: str
     customer_message: str
     extracted_entities: dict[str, Any] = Field(default_factory=dict)
+    customer_metadata: dict[str, str] = Field(default_factory=dict)
+    attachment_refs: list[str] = Field(default_factory=list)
+    sla_deadline_minutes: int | None = None
     current_status: TicketStatus
     current_queue: str
     current_priority: PriorityLevel
@@ -94,6 +98,9 @@ class EpisodeState(BaseModel):
     subject: str
     customer_message: str
     extracted_entities: dict[str, Any] = Field(default_factory=dict)
+    customer_metadata: dict[str, str] = Field(default_factory=dict)
+    attachment_refs: list[str] = Field(default_factory=list)
+    sla_deadline_minutes: int | None = None
 
     ground_truth_category: TicketCategory
     gold_queue: str

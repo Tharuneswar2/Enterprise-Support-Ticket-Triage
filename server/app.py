@@ -21,7 +21,7 @@ def main(host: str = "0.0.0.0", port: int | None = None) -> None:
     import uvicorn
 
     if port is None:
-        port = int(os.getenv("PORT", "8000"))
+        port = int(os.getenv("PORT", "7860"))
     uvicorn.run(app, host=host, port=port)
 
 

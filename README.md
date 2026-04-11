@@ -1,185 +1,160 @@
 ---
-title: Support Env
-emoji: 📈
-colorFrom: purple
-colorTo: red
+title: Enterprise Support Ticket Triage
+emoji: 🎫
+colorFrom: indigo
+colorTo: purple
 sdk: docker
 pinned: false
 license: mit
-short_description: RL environment for training AI agents on real-world customer
+short_description: OpenEnv RL environment for enterprise helpdesk ticket triage
+tags:
+  - openenv
+  - reinforcement-learning
+  - enterprise-support
+  - ticket-triage
 ---
 
-# Enterprise Support Ticket Triage (OpenEnv Round 1)
+# Enterprise Support Ticket Triage — OpenEnv RL Environment
 
-## What This Environment Is
+A production-grade reinforcement learning environment for training and evaluating AI agents on enterprise helpdesk workflows. Each episode presents one inbound support ticket that the agent must triage through a multi-step decision process.
 
-`Enterprise Support Ticket Triage` is a realistic reinforcement learning environment for enterprise helpdesk workflows. Each episode is one inbound support ticket. The agent must triage the ticket through a multi-step process:
+## Architecture
 
-1. classify issue type
-2. assign support queue
-3. set priority
-4. request missing diagnostics
-5. reply safely and clearly
-6. decide whether to escalate or close
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        OpenEnv HTTP Server                         │
+│                     (FastAPI on port 7860)                          │
+│                                                                     │
+│  POST /reset ──► EnterpriseSupportTicketTriageEnv.reset()           │
+│  POST /step  ──► EnterpriseSupportTicketTriageEnv.step()            │
+│  GET  /state ──► EnterpriseSupportTicketTriageEnv.state()           │
+│  GET  /schema ─► Action/Observation Pydantic schemas                │
+│  WS   /ws    ──► Persistent WebSocket session                       │
+└──────────────┬──────────────────────────────────────────────────────┘
+               │
+    ┌──────────▼──────────┐
+    │  Environment Core   │
+    │  ┌────────────────┐ │
+    │  │   9 Tasks      │ │  easy_billing_duplicate_charge
+    │  │   (3 easy,     │ │  easy_password_reset_request
+    │  │    3 medium,   │ │  easy_feature_request
+    │  │    3 hard)     │ │  medium_security_suspicious_login
+    │  └────────────────┘ │  medium_data_export_compliance
+    │  ┌────────────────┐ │  medium_api_rate_limiting
+    │  │ Shaped Rewards │ │  hard_production_outage
+    │  │ + Anti-Gaming  │ │  hard_data_breach_investigation
+    │  └────────────────┘ │  hard_multi_service_cascade_failure
+    │  ┌────────────────┐ │
+    │  │  Deterministic │ │
+    │  │  Graders (per  │ │
+    │  │  task)         │ │
+    │  └────────────────┘ │
+    │  ┌────────────────┐ │
+    │  │  Customer      │ │
+    │  │  Simulation    │ │
+    │  └────────────────┘ │
+    └─────────────────────┘
+```
 
-The environment is deterministic and shaped for trajectory learning, not just terminal success.
+## What Makes This Environment Interesting
 
-## Motivation
-
-Support operations are high-impact and process-sensitive. Bad triage causes delays, unresolved incidents, and security risk. This environment is useful for training and evaluating agents that must make structured, auditable decisions in enterprise support operations.
-
-## Product Decisions
-
-Where the spec left room for design choices, the following practical defaults were selected:
-
-1. Episodes are deterministic per task (no stochastic ticket variants) to maximize grading reproducibility.
-2. `step()` returns a typed `Reward` object (not raw float) to keep reward components transparent.
-3. Medium and hard tasks intentionally discourage closure; hard task requires escalation.
-4. Invalid actions are non-fatal and penalized with `last_action_error` surfaced in observations.
-5. Repeated identical actions receive loop penalties to discourage exploitative behavior.
-
-## OpenEnv Interface Coverage
-
-Implemented in [`env/support_env.py`](/home/tharuneswar/Coding/Hackthon/Enterprise-Support-Ticket-Triage/env/support_env.py):
-
-- Typed Pydantic models:
-  - [`Action`](/home/tharuneswar/Coding/Hackthon/Enterprise-Support-Ticket-Triage/env/models.py)
-  - [`Observation`](/home/tharuneswar/Coding/Hackthon/Enterprise-Support-Ticket-Triage/env/models.py)
-  - [`Reward`](/home/tharuneswar/Coding/Hackthon/Enterprise-Support-Ticket-Triage/env/models.py)
-  - [`EpisodeState`](/home/tharuneswar/Coding/Hackthon/Enterprise-Support-Ticket-Triage/env/models.py)
-- `reset(task_id: Optional[str]) -> Observation`
-- `step(action: Action | dict) -> (Observation, Reward, done, info)`
-- `state() -> EpisodeState`
-- Environment metadata in [`openenv.yaml`](/home/tharuneswar/Coding/Hackthon/Enterprise-Support-Ticket-Triage/openenv.yaml)
+| Feature | Description |
+|---------|-------------|
+| **Multi-step triage workflow** | Agents must classify → route → investigate → resolve in order |
+| **9 diverse tasks** | Billing, security, compliance (GDPR), API issues, data breaches, cascading failures |
+| **Customer simulation** | After `request_info`, the customer "responds" with diagnostic details |
+| **Anti-gaming grading** | Keyword stuffing is penalized; substance and workflow order are rewarded |
+| **Stochastic variants** | Each task can be randomized with different customer tones, entity values, and IP addresses |
+| **SLA pressure** | Hard tasks include SLA deadlines that create urgency |
+| **Safety checks** | Agents are penalized for unsafe behavior (e.g., suggesting users share passwords) |
 
 ## Action Space
 
-Pydantic schema: [`Action`](/home/tharuneswar/Coding/Hackthon/Enterprise-Support-Ticket-Triage/env/models.py)
-
-Fields:
-
-- `action_type`: `classify | reply | escalate | close | request_info | update_priority | assign_queue`
-- `message`: free text response/request
-- `queue`: queue target string (for routing)
-- `priority`: `low | normal | high | urgent`
-- `tags`: structured hints/features for policy behavior
-- `resolution_code`: optional structured close reason
+```json
+{
+  "action_type": "classify | reply | escalate | close | request_info | update_priority | assign_queue",
+  "message": "Free text response or request",
+  "queue": "Target queue name (for assign_queue)",
+  "priority": "low | normal | high | urgent (for update_priority)",
+  "tags": ["structured", "hints"],
+  "resolution_code": "Optional close reason"
+}
+```
 
 ## Observation Space
 
-Pydantic schema: [`Observation`](/home/tharuneswar/Coding/Hackthon/Enterprise-Support-Ticket-Triage/env/models.py)
+```json
+{
+  "task_id": "hard_production_outage",
+  "difficulty": "hard",
+  "ticket_id": "TKT-0007-HARD",
+  "subject": "Production API returning 503 after deployment, checkout unavailable",
+  "customer_message": "Our production checkout API started returning 503...",
+  "extracted_entities": {
+    "impact": "checkout_down",
+    "environment": "production",
+    "error_code": "503",
+    "deployment_id": "deploy-2025-04-10-1847"
+  },
+  "customer_metadata": {
+    "account_tier": "enterprise",
+    "org_size": "1000+",
+    "sla_tier": "premium"
+  },
+  "attachment_refs": ["deploy_log_2025-04-10.txt", "error_trace_503.json"],
+  "sla_deadline_minutes": 30,
+  "current_status": "open",
+  "current_queue": "triage-intake",
+  "current_priority": "normal",
+  "conversation_history": [
+    {"speaker": "customer", "message": "Our production checkout API...", "timestamp": "2025-04-10T14:47:00Z"}
+  ],
+  "required_missing_fields": ["incident_start_time", "affected_service", "request_id", "error_logs"],
+  "step_count": 0,
+  "max_steps_remaining": 8
+}
+```
 
-Visible fields include:
+## Tasks (9 total, 3 difficulty levels)
 
-- `ticket_id`
-- `subject`
-- `customer_message`
-- `extracted_entities`
-- `current_status`
-- `current_queue`
-- `current_priority`
-- `conversation_history`
-- `required_missing_fields`
-- `last_action_error`
-- `step_count`
-- `max_steps_remaining`
+| ID | Difficulty | Category | Key Challenge |
+|----|-----------|----------|---------------|
+| `easy_billing_duplicate_charge` | Easy | Billing | Classify, acknowledge, close properly |
+| `easy_password_reset_request` | Easy | Account | Verify identity before resetting |
+| `easy_feature_request` | Easy | General | Acknowledge without over-promising |
+| `medium_security_suspicious_login` | Medium | Security | Request verification, advise reset, don't close |
+| `medium_data_export_compliance` | Medium | Compliance | GDPR handling, verify authority, set timeline |
+| `medium_api_rate_limiting` | Medium | Technical | Diagnose 429 errors, gather API usage data |
+| `hard_production_outage` | Hard | Incident | Urgent priority, diagnostics, must escalate |
+| `hard_data_breach_investigation` | Hard | Security | Contain breach, revoke tokens, must escalate |
+| `hard_multi_service_cascade_failure` | Hard | Incident | Multi-service triage, dependency analysis, escalate |
 
-## Hidden/Internal State
+## Reward Design
 
-Pydantic schema: [`EpisodeState`](/home/tharuneswar/Coding/Hackthon/Enterprise-Support-Ticket-Triage/env/models.py)
+Shaped rewards are awarded per-step for meaningful progress:
 
-Includes deterministic grading signals and full trajectory context:
+- **+0.22** Correct classification
+- **+0.18** Correct queue assignment
+- **+0.16** Correct priority (harder tasks get more)
+- **+0.10** Per required diagnostic field requested
+- **+0.40** Correct closure (easy tasks only)
+- **+0.20–0.40** Correct escalation (hard tasks)
+- **+0.10** Workflow order bonus (following expected sequence)
 
-- ground-truth ticket category
-- gold queue and gold priority
-- gold resolution path
-- required diagnostic fields
-- requested-field progress
-- action/reward history
-- flags (premature close, escalation, unsafe behavior)
-- episode metadata (repeat-loop tracking)
+Penalties:
 
-## Tasks (Increasing Difficulty)
-
-Task definitions: [`env/tasks.py`](/home/tharuneswar/Coding/Hackthon/Enterprise-Support-Ticket-Triage/env/tasks.py)
-
-1. `easy_billing_duplicate_charge`
-2. `medium_security_suspicious_login`
-3. `hard_production_outage`
-
-### Easy: Billing inquiry / duplicate charge
-
-Expected policy behavior:
-
-- classify as billing
-- assign billing queue
-- acknowledge duplicate charge + refund path
-- provide next steps
-- close only after acknowledgment
-
-### Medium: Account security / suspicious login
-
-Expected policy behavior:
-
-- classify as security
-- assign security queue
-- set high priority
-- request verification details (`last_known_login_time`, `login_location`, `mfa_status`)
-- advise password reset / credential reset
-- keep ticket open (avoid premature close)
-
-### Hard: Production incident / outage
-
-Expected policy behavior:
-
-- classify as production incident
-- assign platform incident queue
-- set urgent priority
-- request diagnostics (`incident_start_time`, `affected_service`, `request_id`, `error_logs`)
-- escalate to incident response
-- do not resolve/close prematurely
-
-## Reward Design (Shaped)
-
-Implemented in [`env/support_env.py`](/home/tharuneswar/Coding/Hackthon/Enterprise-Support-Ticket-Triage/env/support_env.py)
-
-Examples of positive shaping:
-
-- correct classification
-- correct queue assignment
-- correct priority update
-- requesting required diagnostics
-- safe response content (e.g., password reset guidance)
-- correct escalation or correct closure
-
-Penalties include:
-
-- invalid actions / schema mismatch
-- wrong queue or priority
-- irrelevant repeated loops
-- premature or unsafe closure
-- unsafe security behavior
-- max-step timeout
-
-Per-step reward is clipped to `[-1.0, 1.0]`.
-
-## Deterministic Graders
-
-Implemented in [`env/graders.py`](/home/tharuneswar/Coding/Hackthon/Enterprise-Support-Ticket-Triage/env/graders.py)
-
-Each task has deterministic score output in `[0.0, 1.0]` based on:
-
-- classification correctness
-- queue correctness
-- priority correctness
-- required diagnostics coverage
-- required response intent content
-- escalation correctness (hard task)
-- closure safety / premature closure checks
+- **-0.25** Invalid action schema
+- **-0.35** Premature/unsafe closure
+- **-0.18** Unnecessary escalation
+- **-0.05n²** Repeated identical actions (quadratic)
+- **-0.10** Discouraged content
+- **-0.35** Unsafe behavior (suggesting password sharing, etc.)
+- **-0.08** Keyword stuffing (anti-gaming)
 
 ## Setup
 
 ```bash
+git clone <repo-url>
 cd Enterprise-Support-Ticket-Triage
 python -m venv .venv
 source .venv/bin/activate
@@ -188,21 +163,51 @@ pip install -r requirements.txt
 
 ## Usage
 
-### Run baseline inference (heuristic fallback)
+### Start the API Server
+
+```bash
+uvicorn server.app:app --host 0.0.0.0 --port 7860
+```
+
+### API Examples
+
+**Health check:**
+```bash
+curl http://localhost:7860/
+```
+
+**Reset environment (start new episode):**
+```bash
+curl -X POST http://localhost:7860/reset \
+  -H "Content-Type: application/json" \
+  -d '{"task_id": "easy_billing_duplicate_charge"}'
+```
+
+**Take a step:**
+```bash
+curl -X POST http://localhost:7860/step \
+  -H "Content-Type: application/json" \
+  -d '{
+    "action": {
+      "action_type": "classify",
+      "message": "This is a billing issue for a duplicate charge.",
+      "tags": ["billing", "duplicate_charge"]
+    }
+  }'
+```
+
+**Get schemas:**
+```bash
+curl http://localhost:7860/schema
+```
+
+### Run Baseline Inference (Heuristic)
 
 ```bash
 python inference.py --disable-api
 ```
 
-### Run baseline inference with Hugging Face Router API
-
-Environment variables used by `inference.py`:
-
-- `HF_TOKEN` (preferred)
-- `HUGGING_FACE_HUB_TOKEN` (also accepted)
-- `API_KEY` / `HF_API_TOKEN` (fallbacks)
-- `API_BASE_URL`
-- `MODEL_NAME`
+### Run with LLM (Optional)
 
 ```bash
 export HF_TOKEN="<your_hf_token>"
@@ -211,73 +216,44 @@ export MODEL_NAME="Qwen/Qwen2.5-7B-Instruct"
 python inference.py
 ```
 
-For Hugging Face Spaces (Docker), add these as Space variables/secrets:
-
-- Secret: `HF_TOKEN`
-- Variable: `API_BASE_URL=https://router.huggingface.co/v1`
-- Variable: `MODEL_NAME=Qwen/Qwen2.5-7B-Instruct`
-- Variable: `PORT=7860`
-
-## Validation
-
-If OpenEnv CLI is installed:
+### Run Specific Tasks
 
 ```bash
-openenv validate
+python inference.py --disable-api --tasks hard_production_outage hard_data_breach_investigation
 ```
 
 ## Docker
 
-Build:
-
 ```bash
+# Build
 docker build -t enterprise-support-ticket-triage .
-```
 
-Run:
-
-```bash
+# Run server
 docker run --rm -p 7860:7860 enterprise-support-ticket-triage
-```
 
-Health check (server mode):
+# Health check
+curl http://localhost:7860/
 
-```bash
-curl http://localhost:7860/schema
-```
-
-Run baseline inference inside container:
-
-```bash
+# Run inference inside container
 docker run --rm enterprise-support-ticket-triage python inference.py --disable-api
 ```
 
-## Baseline Score Reporting
+## Baseline Scores
 
-`inference.py` prints:
+The deterministic heuristic baseline is intentionally imperfect to demonstrate grader discriminating power:
 
-- per-task step trace
-- per-task deterministic task score
-- final average across all 3 tasks
+| Task | Baseline Score | Why Not Perfect |
+|------|---------------|-----------------|
+| Easy tasks | ~0.75-0.85 | Skips some verification steps |
+| Medium tasks | ~0.65-0.80 | Misses diagnostic fields, wrong priority |
+| Hard tasks | ~0.60-0.75 | Incomplete diagnostics coverage |
+| **Average** | **~0.70** | **Room for RL improvement** |
 
-Score interpretation:
+A trained RL agent should significantly outperform this baseline.
 
-- `>= 0.85`: strong triage policy
-- `0.60 - 0.84`: partially correct, misses key workflow details
-- `< 0.60`: unsafe or low-fidelity triage behavior
+## Resources / Runtime
 
-## Resource / Runtime Targets
-
-Designed to run within:
-
-- 2 vCPU
-- 8 GB RAM
-- under 20 minutes inference runtime (typical run is far below this)
-
-## Hugging Face Spaces Deployment Notes
-
-- Docker-compatible (`Dockerfile` included)
-- Docker starts a persistent OpenEnv-compatible HTTP server (`python -m server.app`)
-- metadata tagged with `openenv` in [`openenv.yaml`](/home/tharuneswar/Coding/Hackthon/Enterprise-Support-Ticket-Triage/openenv.yaml)
-- low dependency footprint, no GPU requirement
-- suitable for Docker Spaces batch evaluation workflows
+- 2 vCPU, 8 GB RAM
+- No GPU required
+- Inference completes in under 2 minutes
+- Docker-compatible with HF Spaces

@@ -1,42 +1,6 @@
-name: enterprise-support-ticket-triage
-version: 0.1.0
-description: >
-  OpenEnv reinforcement learning environment for enterprise helpdesk ticket triage.
-  The agent learns to classify, route, prioritize, request diagnostics, escalate, and close tickets safely.
-author: OpenEnv Round 1 Submission
-license: MIT
-tags:
-  - openenv
-  - reinforcement-learning
-  - enterprise-support
-  - ticket-triage
-  - helpdesk
-entrypoint: env.support_env:EnterpriseSupportTicketTriageEnv
-python_version: "3.11"
-max_episode_steps: 8
-
-schemas:
-  action: env.models:Action
-  observation: env.models:Observation
-  reward: env.models:Reward
-  state: env.models:EpisodeState
-
-tasks:
-  - id: easy_billing_duplicate_charge
-    difficulty: easy
-    description: Duplicate subscription/invoice charge triage and billing closure flow.
-  - id: medium_security_suspicious_login
-    difficulty: medium
-    description: Suspicious login security triage requiring verification and credential reset guidance.
-  - id: hard_production_outage
-    difficulty: hard
-    description: Production outage incident triage requiring urgent priority, diagnostics, and escalation.
-
-resources:
-  cpu: "2 vCPU"
-  memory: "8 GB"
-  runtime_limit_minutes: 20
-
-huggingface:
-  compatible: true
-  space_sdk: docker
+spec_version: 1
+name: enterprise_support_ticket_triage
+type: space
+runtime: fastapi
+app: server.app:app
+port: 7860

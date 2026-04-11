@@ -66,15 +66,28 @@ def call_model_for_action(client: Any, model_name: str, observation: Observation
     return Action.model_validate(payload)
 
 
+# ---------------------------------------------------------------------------
+# Deterministic heuristic baseline
+#
+# Intentionally imperfect — demonstrates that grading has discriminating power.
+# A real agent trained with RL should outperform this baseline.
+# ---------------------------------------------------------------------------
+
+
 def heuristic_action(observation: Observation) -> Action:
+    """
+    Deterministic baseline that follows reasonable but imperfect workflows.
+    Deliberately misses some milestones to produce realistic (~0.65-0.80) scores.
+    """
     task_id = observation.task_id
     step = observation.step_count
 
+    # ── Easy: Billing duplicate charge ──────────────────────────────────
     if task_id == "easy_billing_duplicate_charge":
         if step == 0:
             return Action(
                 action_type=ActionType.CLASSIFY,
-                message="This is a billing issue for a duplicate charge on invoice INV-88421.",
+                message="This is a billing issue for a duplicate charge on the invoice.",
                 tags=["billing", "duplicate_charge", "invoice"],
             )
         if step == 1:
@@ -95,6 +108,63 @@ def heuristic_action(observation: Observation) -> Action:
             tags=["billing_closed"],
         )
 
+    # ── Easy: Password reset ───────────────────────────────────────────
+    if task_id == "easy_password_reset_request":
+        if step == 0:
+            return Action(
+                action_type=ActionType.CLASSIFY,
+                message="Account access issue — user locked out and needs password reset.",
+                tags=["account", "access", "password_reset"],
+            )
+        if step == 1:
+            return Action(action_type=ActionType.ASSIGN_QUEUE, queue="identity-ops", tags=["account"])
+        if step == 2:
+            # Deliberately skip request_info for verification — imperfect baseline
+            return Action(
+                action_type=ActionType.REPLY,
+                message=(
+                    "I understand you're locked out. We can initiate a password reset for you. "
+                    "Please check your registered email for the reset link. If you still don't "
+                    "receive it, we may need to verify your identity through an alternative method."
+                ),
+                tags=["reset", "password"],
+            )
+        return Action(
+            action_type=ActionType.CLOSE,
+            message="Password reset guidance provided.",
+            resolution_code="password_reset_guided",
+            tags=["resolved"],
+        )
+
+    # ── Easy: Feature request ──────────────────────────────────────────
+    if task_id == "easy_feature_request":
+        if step == 0:
+            return Action(
+                action_type=ActionType.CLASSIFY,
+                message="This is a feature request for bulk CSV user import.",
+                tags=["feature_request", "product_feedback"],
+            )
+        if step == 1:
+            return Action(action_type=ActionType.ASSIGN_QUEUE, queue="product-feedback", tags=["feature"])
+        if step == 2:
+            return Action(
+                action_type=ActionType.REPLY,
+                message=(
+                    "Thank you for this feature request. We've acknowledged your need for bulk CSV import "
+                    "in user management. Our product team will review this and consider it for the roadmap. "
+                    "We'll follow up when there's an update on the timeline."
+                ),
+                tags=["feature_request", "roadmap", "acknowledged"],
+            )
+        # Deliberately skip setting priority to LOW — imperfect baseline
+        return Action(
+            action_type=ActionType.CLOSE,
+            message="Feature request logged and acknowledged.",
+            resolution_code="feature_request_logged",
+            tags=["closed"],
+        )
+
+    # ── Medium: Security suspicious login ──────────────────────────────
     if task_id == "medium_security_suspicious_login":
         if step == 0:
             return Action(
@@ -107,13 +177,14 @@ def heuristic_action(observation: Observation) -> Action:
         if step == 2:
             return Action(action_type=ActionType.UPDATE_PRIORITY, priority=PriorityLevel.HIGH, tags=["high_risk"])
         if step == 3:
+            # Deliberately only request 2 of 3 required fields — imperfect baseline
             return Action(
                 action_type=ActionType.REQUEST_INFO,
                 message=(
-                    "Please verify identity and share the last login time, login location/IP, and MFA status so we can "
-                    "confirm unauthorized access quickly."
+                    "Please share the last login time and login location/IP so we can "
+                    "investigate the unauthorized access."
                 ),
-                tags=["last_known_login_time", "login_location", "mfa_status", "verify_identity"],
+                tags=["last_known_login_time", "login_location"],
             )
         if step == 4:
             return Action(
@@ -124,24 +195,81 @@ def heuristic_action(observation: Observation) -> Action:
                 ),
                 tags=["password reset", "credential reset", "mfa"],
             )
-        if step == 5:
-            return Action(
-                action_type=ActionType.REPLY,
-                message="Ticket remains open in security response while verification is in progress.",
-                tags=["security", "open_ticket"],
-            )
-        if step == 6:
-            return Action(
-                action_type=ActionType.REQUEST_INFO,
-                message="Please confirm if any admin device was recently replaced and verify identity ownership.",
-                tags=["verify", "identity"],
-            )
+        # Deliberately send generic reply instead of targeted follow-up — imperfect
         return Action(
             action_type=ActionType.REPLY,
             message="We are monitoring this case and will continue once verification evidence is received.",
             tags=["monitoring", "security"],
         )
 
+    # ── Medium: Data export compliance ─────────────────────────────────
+    if task_id == "medium_data_export_compliance":
+        if step == 0:
+            return Action(
+                action_type=ActionType.CLASSIFY,
+                message="Compliance request — GDPR Article 15 data subject access request.",
+                tags=["compliance", "gdpr", "data_export"],
+            )
+        if step == 1:
+            return Action(action_type=ActionType.ASSIGN_QUEUE, queue="legal-compliance", tags=["compliance"])
+        if step == 2:
+            # Deliberately skip priority update — goes straight to request_info
+            # Only ask for 1 of 3 required fields — imperfect baseline
+            return Action(
+                action_type=ActionType.REQUEST_INFO,
+                message=(
+                    "To process your data export request, we need to verify your role and authority "
+                    "to make this request on behalf of your organization."
+                ),
+                tags=["requester_role"],
+            )
+        if step == 3:
+            return Action(
+                action_type=ActionType.REPLY,
+                message=(
+                    "We've received your GDPR Article 15 data export request. Our compliance team will process "
+                    "this within the 30-day regulatory timeline. We'll provide updates as the export progresses."
+                ),
+                tags=["gdpr", "timeline"],
+            )
+        return Action(
+            action_type=ActionType.REPLY,
+            message="Your data export request is being processed by our legal compliance team.",
+            tags=["compliance", "processing"],
+        )
+
+    # ── Medium: API rate limiting ──────────────────────────────────────
+    if task_id == "medium_api_rate_limiting":
+        if step == 0:
+            return Action(
+                action_type=ActionType.CLASSIFY,
+                message="Technical issue — API rate limiting causing 429 errors on production integration.",
+                tags=["incident", "api", "rate_limiting", "429"],
+            )
+        if step == 1:
+            return Action(action_type=ActionType.ASSIGN_QUEUE, queue="platform-support", tags=["platform"])
+        if step == 2:
+            # Deliberately set NORMAL instead of HIGH — imperfect baseline
+            return Action(action_type=ActionType.UPDATE_PRIORITY, priority=PriorityLevel.NORMAL, tags=["technical"])
+        if step == 3:
+            return Action(
+                action_type=ActionType.REQUEST_INFO,
+                message=(
+                    "Could you share which API endpoint is returning 429 errors and your current "
+                    "request volume? Also, is there a pattern to when the errors occur?"
+                ),
+                tags=["api_endpoint", "request_volume", "error_pattern"],
+            )
+        return Action(
+            action_type=ActionType.REPLY,
+            message=(
+                "We're investigating the 429 rate limit errors on your API integration. "
+                "Our platform team is reviewing your account's rate limit configuration."
+            ),
+            tags=["rate_limit", "investigating"],
+        )
+
+    # ── Hard: Production outage ────────────────────────────────────────
     if task_id == "hard_production_outage":
         if step == 0:
             return Action(
@@ -168,6 +296,76 @@ def heuristic_action(observation: Observation) -> Action:
             tags=["escalate", "on-call", "incident_bridge"],
         )
 
+    # ── Hard: Data breach investigation ────────────────────────────────
+    if task_id == "hard_data_breach_investigation":
+        if step == 0:
+            return Action(
+                action_type=ActionType.CLASSIFY,
+                message="Critical security incident — potential data breach with unauthorized PII access.",
+                tags=["security", "breach", "unauthorized", "incident"],
+            )
+        if step == 1:
+            return Action(action_type=ActionType.ASSIGN_QUEUE, queue="security-incident", tags=["security"])
+        if step == 2:
+            return Action(action_type=ActionType.UPDATE_PRIORITY, priority=PriorityLevel.URGENT, tags=["critical"])
+        if step == 3:
+            # Only request 3 of 4 fields — imperfect
+            return Action(
+                action_type=ActionType.REQUEST_INFO,
+                message=(
+                    "We need the compromised token ID, the list of affected user accounts, "
+                    "and the timestamps of the unauthorized data exports immediately."
+                ),
+                tags=["compromised_token_id", "affected_user_list", "export_timestamps"],
+            )
+        if step == 4:
+            return Action(
+                action_type=ActionType.REPLY,
+                message=(
+                    "IMMEDIATE ACTION REQUIRED: Please revoke the compromised API token immediately. "
+                    "Block all API access from the suspicious source. We are treating this as a "
+                    "confirmed data breach incident requiring containment."
+                ),
+                tags=["contain", "revoke", "breach"],
+            )
+        return Action(
+            action_type=ActionType.ESCALATE,
+            message="Escalating to CISO and incident response team for breach containment and notification.",
+            tags=["escalate", "ciso", "breach_response"],
+        )
+
+    # ── Hard: Multi-service cascade failure ────────────────────────────
+    if task_id == "hard_multi_service_cascade_failure":
+        if step == 0:
+            return Action(
+                action_type=ActionType.CLASSIFY,
+                message="Critical production incident — cascading failure across multiple services.",
+                tags=["incident", "cascade", "production", "outage"],
+            )
+        if step == 1:
+            return Action(action_type=ActionType.ASSIGN_QUEUE, queue="platform-incident", tags=["incident"])
+        if step == 2:
+            return Action(action_type=ActionType.UPDATE_PRIORITY, priority=PriorityLevel.URGENT, tags=["sev1"])
+        if step == 3:
+            # Only request 3 of 5 fields — imperfect
+            return Action(
+                action_type=ActionType.REQUEST_INFO,
+                message=(
+                    "We need the incident start time, the list of affected services, "
+                    "and any error logs from the failing services."
+                ),
+                tags=["incident_start_time", "affected_service", "error_logs"],
+            )
+        return Action(
+            action_type=ActionType.ESCALATE,
+            message=(
+                "Escalating cascade failure to infrastructure on-call team. "
+                "Multiple services are down — requesting incident bridge activation."
+            ),
+            tags=["escalate", "infrastructure", "incident_bridge"],
+        )
+
+    # ── Fallback ───────────────────────────────────────────────────────
     return Action(
         action_type=ActionType.REPLY,
         message="Acknowledged. Requesting additional details to proceed.",
@@ -265,14 +463,17 @@ def build_client_from_env(disable_api: bool) -> tuple[Any | None, str]:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Baseline inference for Enterprise Support Ticket Triage")
     parser.add_argument("--disable-api", action="store_true", help="Run fully deterministic heuristic baseline")
-    parser.add_argument("--max-steps", type=int, default=8, help="Global episode step cap")
+    parser.add_argument("--max-steps", type=int, default=10, help="Global episode step cap")
+    parser.add_argument("--tasks", nargs="*", default=None, help="Specific task IDs to run (default: all)")
     args = parser.parse_args()
 
     env = EnterpriseSupportTicketTriageEnv(max_steps=args.max_steps)
     client, model_name = build_client_from_env(disable_api=args.disable_api)
 
+    task_ids = args.tasks if args.tasks else TASK_ORDER
+
     scores: list[float] = []
-    for task_id in TASK_ORDER:
+    for task_id in task_ids:
         score = run_episode(
             env,
             task_id=task_id,
@@ -283,9 +484,10 @@ def main() -> None:
 
     avg_score = sum(scores) / len(scores)
     emit("[SUMMARY] per_task_scores")
-    for task_id, score in zip(TASK_ORDER, scores):
+    for task_id, score in zip(task_ids, scores):
         emit(f"[SUMMARY] task={task_id} score={score:.4f}")
     emit(f"[SUMMARY] average_score={avg_score:.4f}")
+    emit(f"[SUMMARY] tasks_run={len(scores)}")
 
 
 if __name__ == "__main__":

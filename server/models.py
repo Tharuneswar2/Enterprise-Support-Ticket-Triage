@@ -30,6 +30,9 @@ class SupportTriageObservation(Observation):
     subject: str
     customer_message: str
     extracted_entities: dict = Field(default_factory=dict)
+    customer_metadata: dict = Field(default_factory=dict)
+    attachment_refs: list[str] = Field(default_factory=list)
+    sla_deadline_minutes: int | None = None
     current_status: str
     current_queue: str
     current_priority: str

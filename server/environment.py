@@ -23,7 +23,7 @@ class SupportTriageServerEnvironment(Environment):
 
     def reset(self, seed: int | None = None, episode_id: str | None = None, **kwargs) -> SupportTriageObservation:
         task_id = kwargs.get("task_id")
-        observation = self._env.reset(task_id=task_id)
+        observation = self._env.reset(task_id=task_id, seed=seed)
         episode = episode_id or observation.ticket_id or str(uuid4())
         self._state = State(episode_id=episode, step_count=observation.step_count)
         return self._map_observation(observation, reward=0.0, done=False, metadata={"task_id": observation.task_id})
@@ -56,6 +56,11 @@ class SupportTriageServerEnvironment(Environment):
     def state(self) -> State:
         return self._state
 
+    def close(self) -> None:
+        """Clean up the underlying environment."""
+        if self._env is not None:
+            self._env.close()
+
     def _map_observation(
         self,
         observation,
@@ -70,6 +75,9 @@ class SupportTriageServerEnvironment(Environment):
             subject=observation.subject,
             customer_message=observation.customer_message,
             extracted_entities=observation.extracted_entities,
+            customer_metadata=observation.customer_metadata,
+            attachment_refs=observation.attachment_refs,
+            sla_deadline_minutes=observation.sla_deadline_minutes,
             current_status=observation.current_status.value,
             current_queue=observation.current_queue,
             current_priority=observation.current_priority.value,
